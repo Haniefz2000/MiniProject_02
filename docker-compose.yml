@@ -1,0 +1,113 @@
+version: '3.8'
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:${CP_VERSION:-latest}
+    hostname: kafka-zookeeper
+    container_name: kafka-zookeeper
+    ports:
+      - "2182:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - services
+    restart: always
+    #volumes: 
+     # - ./kafka_volume/zoo/data:/var/lib/zookeeper/data:z
+     # - ./kafka_volume/zoo/log:/var/lib/zookeeper/log:z
+
+  broker:
+    image: confluentinc/cp-kafka:${CP_VERSION:-latest}
+    hostname: kafka-broker
+    container_name: kafka-broker
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'kafka-zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: EXTERNAL:PLAINTEXT,INTERNAL:PLAINTEXT
+      # if you want to use this image in your local machine :
+      #   - add this line to your /etc/hosts file -> 127.0.0.1 kafka-broker  
+      # if you want to use this image in a remote server you must do the followings : 
+      # 1- change localhost in the following line to the valid IP address of your remote server.
+      # 2- add this line to your /etc/hosts file in the remote server -> 127.0.0.1 kafka-broker  
+      # AWS : https://rmoff.net/2018/08/02/kafka-listeners-explained/
+      KAFKA_ADVERTISED_LISTENERS: EXTERNAL://localhost:9092,INTERNAL://kafka-broker:29092
+      KAFKA_LISTENERS: EXTERNAL://:9092,INTERNAL://:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+      CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: kafka-broker:29092
+      CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
+      CONFLUENT_METRICS_ENABLE: 'true'
+      CONFLUENT_SUPPORT_CUSTOMER_ID: 'anonymous'
+    networks:
+      - services
+    # restart: always
+    restart: always
+    volumes: 
+      #- ./kafka_volume/broker/data:/var/lib/kafka/data:z
+      - ./codes:/codes
+
+  kafkaHQ:
+    image: tchiotludo/akhq
+    container_name: kafkaHQ
+    hostname: kafkaHQ
+    depends_on:
+      - broker
+    ports :
+      - 9100:8080
+    environment:
+      AKHQ_CONFIGURATION: |
+        akhq:
+          connections:
+            docker-kafka-server:
+              properties:
+                bootstrap.servers: "kafka-broker:29092"
+    networks:
+      - services
+    restart: always
+    # restart: always
+  postgres:
+    container_name: postgres
+    hostname: postgres
+    image: postgres:latest
+    volumes:
+      - ./${DATA_FOLDER:-db_data}:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d  # Mounting the init script
+      - ./backup:/backup
+      - ./archive:/archive
+      - ./tblspace:/tblspace
+    environment:
+      - POSTGRES_PASSWORD=${DB_PASS:-postgres123}
+      - POSTGRES_USER=${DB_USER:-postgres}
+      - POSTGRES_DB=${DB_NAME:-dblab}
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    networks:
+      - services
+    restart: on-failure:10
+    ports:
+      - ${PORT:-5434}:5432
+  
+  #ubuntu_service:
+    #image: ubuntu:latest
+    #command: tail -f /dev/null
+    #volumes:
+      #- ./codes:/codes
+    #depends_on:
+    #  - zookeeper
+     # - broker
+     # - postgres
+  
+networks:
+ services:
+  name: ${APP_NAME:- mini_project_1}_network
